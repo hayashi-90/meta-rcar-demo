@@ -126,3 +126,93 @@ setenv xen_nvme 'pci e && nvme scan && env delete bootargs && load nvme 0:1 ${lo
 ```
 run xen_nvme
 ```
+## DomAのタッチデバイスに任意のディスプレイを使う方法
+
+DSI:Waveshare 13.3インチタッチディスプレイ(解像度1920x1080)
+DP-HDMI:12.3インチ横長タッチディスプレイ(解像度1920x720)
+上記のディスプレイ構成で、DomAのディスプレイをWaveshare固定から横長のディスプレイに変更する方法。
+これにより、それぞれのディスプレイでそれぞれのGuestDomainのタッチ操作が可能になる。
+
+手順は以下の通り。
+### 1. doma-virtio.cfgの編集
+```
+--- a/meta-xen-dom0/recipes-guests/doma/files/doma-virtio.cfg
++++ b/meta-xen-dom0/recipes-guests/doma/files/doma-virtio.cfg
+@@ -35,6 +35,7 @@
+ 'backend=DomD, type=virtio,device, transport=pci, bdf=0000:00:05.0, grant_usage=0, backend_type=qemu',
+ 'backend=DomD, type=virtio,device, transport=pci, bdf=0000:00:06.0, grant_usage=0, backend_type=qemu',
+ 'backend=DomD, type=virtio,device, transport=pci, bdf=0000:00:07.0, grant_usage=0, backend_type=qemu',
++'backend=DomD, type=virtio,device, transport=pci, bdf=0000:00:08.0, grant_usage=0, backend_type=qemu',
+ ]
+ 
+ device_model_args=[
+@@ -56,9 +57,10 @@
+ '-device','virtconsole,chardev=virts_chardev6,id=virts6',
+ '-device', 'virtio-net-pci,disable-legacy=on,iommu_platform=on,bus=pcie.0,addr=4,romfile=,id=nic0,netdev=net0,mac=08:00:27:ff:cb:ce',
+ '-netdev', 'type=tap,id=net0,ifname=vif-emu,br=xenbr0,script=no,downscript=no,vhost=on',
+-'-device', 'virtio-net-pci,disable-legacy=on,iommu_platform=on,bus=pcie.0,addr=6,romfile=,id=nic1,netdev=net1,mac=08:00:27:ff:cb:cf',
++'-device', 'virtio-net-pci,disable-legacy=on,iommu_platform=on,bus=pcie.0,addr=8,romfile=,id=nic1,netdev=net1,mac=08:00:27:ff:cb:cf',
+ '-netdev', 'type=tap,id=net1,ifname=vif-emu1,script=no,downscript=no,vhost=on',
+-'-device', 'virtio-tablet-pci,disable-legacy=on,iommu_platform=on,bus=pcie.0,addr=5',
++'-device', 'virtio-input-host-pci,disable-legacy=on,iommu_platform=on,bus=pcie.0,addr=5,evdev=/dev/input/by-id/usb-wch.cn_TouchScreen_9LQ0172005164-event-if00',
++'-device', 'virtio-input-host-pci,disable-legacy=on,iommu_platform=on,bus=pcie.0,addr=6,evdev=/dev/input/by-id/usb-wch.cn_TouchScreen_9LQ0172005164-if02-event-mouse',
+ '-device', 'virtio-gpu-gl-pci,disable-legacy=on,iommu_platform=on,bus=pcie.0,addr=7',
+ '-display', 'sdl,gl=on',
+ '-vga', 'std',
+```
+### 2. domu-virtio.cfgの編集
+```
+--- a/meta-xen-dom0/recipes-guests/domu/files/domu-virtio.cfg
++++ b/meta-xen-dom0/recipes-guests/domu/files/domu-virtio.cfg
+@@ -43,7 +43,7 @@
+ '-display', 'sdl,gl=on',
+ '-vga', 'std',
+ #'-device', 'vhost-vsock-pci,guest-cid=4,disable-legacy=on,iommu_platform=on,bus=pcie.0,addr=6',
+-'-device', 'virtio-tablet-pci,disable-legacy=on,iommu_platform=on,bus=pcie.0,addr=7',
++'-device', 'virtio-input-host-pci,disable-legacy=on,iommu_platform=on,bus=pcie.0,addr=7,evdev=/dev/input/touchscreen0',
+ '-d', 'guest_errors',
+ '-monitor', 'telnet:127.0.0.1:1235,server,nowait',
+ '-global', 'virtio-mmio.force-legacy=false',
+```
+### 3. idcファイルのリネーム
+```
+(変更前)
+work_v4hsbc_xen/android/device/epam/aosp-xenvm-trout/conf/Vendor_0627_Product_0003.idc
+(変更後)
+work_v4hsbc_xen/android/device/epam/aosp-xenvm-trout/conf/Vendor_27c0_Product_0859.idc
+```
+上記は12.3インチ横長タッチディスプレイを例にしたTips。
+idcファイルの命名規則は以下のようになっており、VendroIDとProductIDを変えることで、任意のディスプレイをDomAのタッチディスプレイに設定可能。
+```
+Vendor_(VendorID)_Product_(ProductID).idc
+```
+### 4. work_v4hsbc_xen/android/device/epam/aosp-xenvm-trout/aosp_xenvm_trout_arm64.mkの編集
+```
+(変更前)
+# Configure single touch device
+PRODUCT_COPY_FILES += \
+    device/epam/aosp-xenvm-trout/conf/Vendor_0627_Product_0003.idc:$(TARGET_COPY_OUT_VENDOR)/usr/idc/Vendor_0627_Product_0003.idc
+(変更後)
+# Configure single touch device
+PRODUCT_COPY_FILES += \
+    device/epam/aosp-xenvm-trout/conf/Vendor_27c0_Product_0859.idc:$(TARGET_COPY_OUT_VENDOR)/usr/idc/Vendor_27c0_Product_0859.idc
+```
+
+### 5. doma-set-rootの編集
+
+DomUにDSI:Waveshare 13.3インチタッチディスプレイ(解像度1920x1080)、
+DomAにDP-HDMI:12.3インチ横長タッチディスプレイ（解像度1920x720）
+を割り当てるためのワークアラウンドとして、DomAの起動を遅延するパッチを当てる。
+```
+--- a/meta-xen-dom0/recipes-guests/doma/files/doma-set-root
++++ b/meta-xen-dom0/recipes-guests/doma/files/doma-set-root
+@@ -50,3 +50,4 @@ if [ -n "$DOMA_STORAGE" ] ; then
+     sed -i "s|/dev/${STORAGE_PART}3|${DOMA_STORAGE}|g" $DOMA_CFG_FILE
+ fi
+ 
++sleep 30s
+```
+### 6. 再ビルド
+```
+./build.sh -v -u -a
+```
